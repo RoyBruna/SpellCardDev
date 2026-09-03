@@ -1,142 +1,78 @@
-```text
-  ___ ___ ___ _    _     ___   _   ___ ___    ___  _____   __
- / __| _ \ __| |  | |   / __| /_\ | _ \   \  |   \| __\ \ / /
- \__ \  _/ _|| |__| |__| (__ / _ \|   / |) | | |) | _| \ V / 
- |___/_| |___|____|____|\___/_/ \_\_|_\___/  |___/|___| \_/  
-=============================================================
-      [ DANMAKU DEVELOPMENT LAB // SPELL CARD WORKSHOP ]
-=============================================================
-```
-
-> *"Las reglas de las Spell Cards no fueron creadas para destruir,*  
-> *sino para transformar el combate en una obra de arte geometrico y caotico."*
+# SpellCardDev
+> Laboratorio de desarrollo Danmaku y Spell Cards en Unity (C#).  
+> Arquitectura orientada a rendimiento, cálculo geométrico y control de proyectiles.
 
 ---
 
-## [ 01 ] Proposito del Espacio
+## 1. Arquitectura de Scripts (C#)
 
-Este repositorio es un laboratorio de practica dedicado exclusivamente al diseno, calculo y programacion de patrones de proyectiles (**danmaku**) y **Spell Cards** inspiradas en el universo de *Touhou Project*.
+El proyecto separa la lógica en módulos independientes dentro de `Assets/_Project/Scripts/`:
 
-El objetivo central es dominar la arquitectura y la matematica detras de la generacion de patrones:
-- **Trigonometria y sistemas polares:** Conversion fluida de coordenadas cartesianas a polares y viceversa.
-- **Curvas parametricas y distribuciones angulares:** Funciones matematicas para modelar formas de flores, lazos y trayectorias no lineales.
-- **Dinamicas de proyectil:** Modulacion de velocidad ($v$), aceleracion ($a$), arrastre y curvas angulares en tiempo real.
-- **Maquinas de estado y secuenciadores:** Control de fases, timers y transiciones de patrones complejos.
-- **Arquitectura de rendimiento:** Implementacion de *Bullet Pooling* y estructuras eficientes para manejar miles de objetos simultaneos a 60 FPS estables.
-
----
-
-## [ 02 ] Fundamentos y Matematica de Danmaku
-
-El diseno de patrones no depende de la aleatoriedad, sino de geometria precisa en movimiento.
-
-```text
-                       (0, -r)
-                          |  ^ dy = -sin(theta) * v
-                          |  |
-             (-r, 0) -----+----- (r, 0)
-                          |  |
-                          |  v dy =  sin(theta) * v
-                       (0,  r)
-               dx = cos(theta) * v
-```
-
-### Formulas Clave
-
-```text
-+----------------------+----------------------------------------------------------+
-| Concepto             | Formula / Algoritmo                                      |
-+----------------------+----------------------------------------------------------+
-| Ring Spread          | theta_n = base_angle + (n * (2 * PI / count))            |
-| Targeted (Aiming)    | angle = atan2(player.y - origin.y, player.x - origin.x)  |
-| Spiral Stream        | theta(t) = (t * delta_angle) % (2 * PI)                  |
-| Rose Curve (Flores)  | r(theta) = a * cos(k * theta)                            |
-| Trayectoria Variable | v(t) = v_0 + a * t ; theta(t) = theta_0 + omega * t      |
-+----------------------+----------------------------------------------------------+
-```
+| Módulo | Script | Responsabilidad |
+| :--- | :--- | :--- |
+| **Player** | `PlayerController.cs` | Movimiento en 8 direcciones, modo Focus, control de vidas (3), invulnerabilidad temporal y HUD. |
+| | `PlayerShooter.cs` | Disparo continuo primario (`Z`) y ataque cargado con indicador visual (`X`). |
+| | `PlayerBomb.cs` | Bomba de onda expansiva circular (`C`) que barre balas enemigas en tiempo real y daña jefes. |
+| **Enemies** | `BossController.cs` | Secuencia de presentación (entrada suave), barra de HP superior, fases y pantalla de reintento. |
+| | `FairyEnemy.cs` | Ciclo de vida completo: trayectoria de entrada, flotado con ataque configurable y retirada. |
+| | `FairySpawner.cs` | Gestor de oleadas periódicas con diferentes patrones de disparo (abanicos, ráfagas, anillos). |
+| | `CirclePatternSpawner.cs` | Generador de anillos radiales equidistantes de 360° con rotación incremental opcional. |
+| **Bullets** | `BulletPool.cs` | Pool de objetos preasignado (`Queue<GameObject>`) para reciclaje sin recolección de basura. |
+| | `EnemyBullet.cs` | Proyectil enemigo con rotación automática a la trayectoria, override de sprite y hitbox dinámico. |
+| | `PlayerBullet.cs` | Proyectil del jugador con detección de impacto contra jefes y hadas. |
+| **Background**| `BackgroundVideoPlayer.cs` | Gestor de color de fondo sólido (azul oscuro/índigo cósmico `#0D0F1A`) con vista previa en editor. |
 
 ---
 
-## [ 03 ] Arquitectura de una Spell Card
+## 2. Notas Técnicas & Rendimiento (C# en Unity)
 
-```text
-      +--------------------------------------------------+
-      |                 SPELL CARD ENGINE                |
-      +--------------------------------------------------+
-                               |
-            +------------------+------------------+
-            |                                     |
-            v                                     v
-   +-----------------+                   +-----------------+
-   |    TIMELINE     |                   |   BULLET POOL   |
-   | (State Machine) |                   | (Pre-allocated) |
-   +-----------------+                   +-----------------+
-            |                                     |
-            +------------------+------------------+
-                               |
-                               v
-                      +-----------------+
-                      |    EMITTERS     |
-                      | (Ring, Spiral,  |
-                      | Laser, Curving) |
-                      +-----------------+
-                               |
-                               v
-                      +-----------------+
-                      | PROJECTILE SIM  |
-                      | (Step / Render) |
-                      +-----------------+
+### Gestión de Memoria (Zero-Allocation en combate)
+* **Object Pooling Obligatorio:** Nunca invocar `Instantiate()` ni `Destroy()` durante el gameplay para proyectiles. Todo ciclo de vida pasa por `BulletPool.GetBullet()` y `BulletPool.ReturnBullet()`.
+* **Caché Estático de Sprites:** Los proyectiles usan referencias cacheadas para evitar regenerar texturas en tiempo de ejecución.
+* **Corrutinas Limpias:** Cada corrutina de disparo o flash visual valida referencias y se detiene explícitamente al salir de escena o morir la entidad.
+
+### Detección de Colisiones 2D
+* **Física Cinemática:** Entidades y balas operan con `Rigidbody2D` en modo `Kinematic` con `gravityScale = 0` y `CollisionDetectionMode2D.Continuous`.
+* **Hitbox del Jugador:** Radio diminuto (`0.06f`) fiel al estándar Touhou. El indicador visual solo se activa al sostener la tecla de Focus (`Shift`).
+* **Hitbox Dinámico de Proyectiles (PPU 32):** El colisionador calcula su radio en base a las dimensiones en píxeles del sprite asignado:
+  $$\text{Radius} = \left(\frac{\min(\text{width}, \text{height})}{2 \times \text{PPU}}\right) \times \text{hitboxRatio}$$
+  Permite intercambiar balas de 8x8, 16x16 o 32x32 manteniendo la colisión proporcional automáticamente.
+
+---
+
+## 3. Fórmulas de Patrones Danmaku
+
+```csharp
+// 1. Anillo Equidistante (360°)
+float angleStep = 360f / bulletCount;
+float angleRad = (baseRotation + i * angleStep) * Mathf.Deg2Rad;
+Vector2 dir = new Vector2(Mathf.Sin(angleRad), Mathf.Cos(angleRad));
+
+// 2. Disparo Dirigido (Aimed to Player)
+Vector2 toPlayer = (playerTransform.position - origin.position).normalized;
+
+// 3. Abanico Angular (Spread / Fan)
+float halfSpread = spreadAngle * 0.5f;
+float angle = Mathf.Lerp(-halfSpread, halfSpread, (float)i / (count - 1));
+Vector2 fanDir = Quaternion.Euler(0f, 0f, angle) * toPlayer;
 ```
 
 ---
 
-## [ 04 ] Laboratorio de Patrones (Roadmap de Practica)
+## 4. Mapeo de Controles
 
-### Fase 1: Emisiones Fundamentales
-- [ ] **Anillo Simple Equidistante:** Generacion de $N$ proyectiles distribuidos simetricamente en $360^\circ$.
-- [ ] **Anillos Concentricos con Desfase:** Capas con diferentes velocidades y rotacion angular intercalada.
-- [ ] **Cono Dirigido (Odd & Even):** Dispersiones apuntadas al objetivo calculando offsets para cantidad par e impar de balas.
-
-### Fase 2: Rotaciones y Espirales
-- [ ] **Espiral de Arquimedes:** Emision continua con incremento constante de angulo.
-- [ ] **Doble Espiral Cruzada:** Dos emisores coaxiales rotando en sentidos opuestos.
-- [ ] **Molinete Multi-Brazo (Pinwheel):** $N$ ramas rotatorias con aceleracion variable.
-
-### Fase 3: Dinamicas Parametricas y Transformaciones
-- [ ] **Balas Ondulatorias:** Proyectiles con oscilacion transversal sinusoidal (*wobble*).
-- [ ] **Freno y Redireccion (Stop & Go):** Desaceleracion a $v=0$, pausa configurable y aceleracion en nuevo angulo.
-- [ ] **Patron Flor Polar:** Curvas de rosa ($r = a \cdot \sin(k \theta)$) expandiendose radialmente.
-
-### Fase 4: Cortinas Compuestas y Sub-Balas
-- [ ] **Cortina de Lluvia Geometrica:** Generacion matricial con carriles de paso predecibles.
-- [ ] **Burst Secundario:** Proyectiles principales que detonan en sub-anillos al expirar su tiempo de vida.
-- [ ] **Flor de Loto:** Expansion radial inicial seguida de contraccion o cambio de trayectoria invertida.
-
-### Fase 5: Spell Cards Completas (Boss Phases)
-- [ ] **Spell Card 01:** Patron dual sincronizado con fases de carga (*charge-up*) y disparo sostenido.
-- [ ] **Spell Card 02:** Patron asimetrico disenado para micro-esquiva (*micro-dodging / streaming*).
-- [ ] **Spell Card 03:** Danmaku estetico de dos capas (malla de fondo lenta + lasers directos).
+| Entrada | Acción | Detalle |
+| :--- | :--- | :--- |
+| **Flechas** | Movimiento | 8 direcciones normalizadas (velocidad constante en diagonales). |
+| **Shift Izq** | Modo Focus | Reduce velocidad a `2.5` y hace visible el punto de colisión central. |
+| **Z** | Disparo | Fuego rápido continuo con balas ascendentes. |
+| **X (Mantener)**| Carga | Carga energía con aura visual; al soltar lanza abanico de hasta 7 balas. |
+| **C** | Bomba | Expande un anillo de barrido que elimina balas en contacto (Cooldown: 4s). |
 
 ---
 
-## [ 05 ] Principios de Diseno ZUN-Style
+## 5. Parámetros Globales
 
-1. **La belleza visual es la prioridad:**  
-   Un patron debe verse hipnotico y legible. La pantalla llena de balas debe parecer una pintura matematica antes que caos puro.
-
-2. **Esquivabilidad Justa (Fair Dodging):**  
-   Todo patron tiene una logica de escape clara (*streaming*, macro-esquiva, micro-esquiva o *grazing*). Un impacto nunca debe ser producto de un RNG injusto.
-
-3. **Hitbox y Colision Rigurosa:**  
-   El radio de colision de cada proyectil debe ser diminuto y perfectamente centrado respecto al sprite.
-
-4. **Rendimiento Impecable:**  
-   60 FPS obligatorios. El pooling riguroso de objetos y calculos directos en memoria garantizan fluidez absoluta incluso con miles de proyectiles activos.
-
----
-
-```text
-+-------------------------------------------------------------+
-|               "MAKE THE SCREEN BLOOM."                      |
-+-------------------------------------------------------------+
-```
+* **Resolución base:** `1280 x 960` (Aspecto 4:3).
+* **Cámara:** Ortográfica, `Size = 8.0` (16 unidades de alto).
+* **PPU Estándar:** `32` para todos los assets de sprites del juego.
